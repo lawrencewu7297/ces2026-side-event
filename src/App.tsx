@@ -4,6 +4,7 @@ import { Router, Route, Switch } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import Home from "@/pages/Home";
 import NotFound from "@/pages/NotFound";
 
@@ -28,10 +29,12 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
+        <LanguageProvider>
         <TooltipProvider>
           <Toaster />
           <AppRouter />
         </TooltipProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

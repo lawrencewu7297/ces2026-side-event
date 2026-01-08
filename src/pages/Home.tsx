@@ -1,567 +1,275 @@
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-} from "@/components/ui/card";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { 
-  Download, 
-  Search, 
-  SlidersHorizontal, 
-  Building2, 
-  Briefcase, 
-  ExternalLink, 
-  Phone, 
-  Mail, 
-  Save, 
-  RotateCcw,
-  Menu,
-  X,
-  Languages,
-  CheckCircle2,
-  Clock
-} from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
-import rawData from "@/assets/attendees.json";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from "recharts";
-import heroBg from "@/assets/hero-bg.jpg";
-import { cn } from "@/lib/utils";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
-import { translations, type Language } from "@/lib/i18n";
-
-// --- Types ---
-type Attendee = {
-  "分類": string;
-  name: string;
-  email: string;
-  phone_number: string | number;
-  "What company do you work for?": string;
-  "What is your job title?": string;
-  "What is your LinkedIn profile?": string;
-  approval_status: string;
-  created_at: string;
-  ticket_name: string;
-  "Country / Region": string;
-  "洽談情況": string;
-  "目標優先級": string;
-  "notes"?: string; // New field for notes
-  [key: string]: any;
-};
-
-// --- Utils ---
-const CATEGORY_COLORS: Record<string, string> = {
-  "AI品牌": "var(--chart-3)", // Green
-  "VC/投資人": "var(--chart-2)", // Magenta
-  "其他": "var(--chart-4)", // Yellow
-};
-
-const STATUS_OPTIONS = ["未開始", "洽談中", "已確認", "不感興趣"];
-const PRIORITY_OPTIONS = ["高", "中", "低"];
-const APPROVAL_OPTIONS = ["approved", "pending_approval"];
-
-const STORAGE_KEY = "side-event-attendees-data-v1";
-const LANG_STORAGE_KEY = "side-event-lang-pref";
+import { useState, useMemo } from 'react';
+import { useExhibitors } from '@/hooks/use-exhibitors';
+import { SidebarFilters } from '@/components/SidebarFilters';
+import { ExhibitorCard } from '@/components/ExhibitorCard';
+import { ExhibitorDetail } from '@/components/ExhibitorDetail';
+import { AddExhibitorDialog } from '@/components/AddExhibitorDialog';
+import { Button } from '@/components/ui/button';
+import type { VisitStatus } from '@/types';
+import { Loader2, Download, Filter, Search, Globe } from 'lucide-react';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import heroImg from '@/assets/hero.jpg';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function Home() {
-  // --- Language State ---
-  const [lang, setLang] = useState<Language>(() => {
-    const saved = localStorage.getItem(LANG_STORAGE_KEY);
-    return (saved === 'en' || saved === 'zh') ? saved : 'zh';
+  const { exhibitors, loading, actions } = useExhibitors();
+  const { t, language, setLanguage } = useLanguage();
+  
+  // Filters State
+  const [filters, setFilters] = useState({
+    search: '',
+    venue: 'All',
+    country: 'All',
+    status: 'All' as VisitStatus | 'All',
+    onlyStarred: false
   });
 
-  useEffect(() => {
-    localStorage.setItem(LANG_STORAGE_KEY, lang);
-  }, [lang]);
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 24;
 
-  const t = (key: keyof typeof translations['en']) => translations[lang][key] || key;
+  // Selected Exhibitor for Detail View
+  const [selectedExhibitorId, setSelectedExhibitorId] = useState<string | null>(null);
 
-  // --- State with LocalStorage Initialization ---
-  const [attendees, setAttendees] = useState<Attendee[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed to parse saved data", e);
-      }
-    }
-    // Initialize raw data with empty notes if needed
-    return (rawData as unknown as Attendee[]).map(a => ({ ...a, notes: a.notes || "" }));
-  });
-
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [priorityFilter, setPriorityFilter] = useState("ALL");
-  const [approvalFilter, setApprovalFilter] = useState("ALL");
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
-
-  // --- Persistence Effect ---
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(attendees));
-  }, [attendees]);
-
-  // --- Filtering Logic ---
-  const filteredData = useMemo(() => {
-    return attendees.filter((item) => {
-      const matchSearch =
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        item["What company do you work for?"].toLowerCase().includes(search.toLowerCase()) ||
-        item["What is your job title?"].toLowerCase().includes(search.toLowerCase());
-      
-      const matchCategory = categoryFilter === "ALL" || item["分類"] === categoryFilter;
-      const matchStatus = statusFilter === "ALL" || item["洽談情況"] === statusFilter;
-      const matchPriority = priorityFilter === "ALL" || item["目標優先級"] === priorityFilter;
-      const matchApproval = approvalFilter === "ALL" || item.approval_status === approvalFilter;
-
-      return matchSearch && matchCategory && matchStatus && matchPriority && matchApproval;
+  // Memoized Unique Values for Filters
+  const { venues, countries } = useMemo(() => {
+    const vSet = new Set<string>();
+    const cSet = new Set<string>();
+    exhibitors.forEach(e => {
+        if(e.booths) {
+            // Simple heuristic for venue: take first part before comma or '—'
+            const mainVenue = e.booths.split('—')[0].trim();
+            if(mainVenue) vSet.add(mainVenue);
+        }
+        if(e.国家) cSet.add(e.国家);
     });
-  }, [attendees, search, categoryFilter, statusFilter, priorityFilter, approvalFilter]);
+    return {
+        venues: Array.from(vSet).sort(),
+        countries: Array.from(cSet).sort()
+    };
+  }, [exhibitors]);
 
-  // --- Stats Logic ---
-  const stats = useMemo(() => {
-    const total = filteredData.length;
-    const byCategory = filteredData.reduce((acc, curr) => {
-      acc[curr["分類"]] = (acc[curr["分類"]] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
-    return { total, byCategory };
-  }, [filteredData]);
+  // Filtering Logic
+  const filteredExhibitors = useMemo(() => {
+    return exhibitors.filter(e => {
+        const matchSearch = !filters.search || e.名称.toLowerCase().includes(filters.search.toLowerCase());
+        const matchVenue = filters.venue === 'All' || (e.booths && e.booths.includes(filters.venue));
+        const matchCountry = filters.country === 'All' || e.国家 === filters.country;
+        const matchStatus = filters.status === 'All' || e.userState.status === filters.status;
+        const matchStarred = !filters.onlyStarred || e.userState.isStarred;
 
-  const pieData = Object.entries(stats.byCategory).map(([name, value]) => ({ name, value }));
+        return matchSearch && matchVenue && matchCountry && matchStatus && matchStarred;
+    });
+  }, [exhibitors, filters]);
 
-  // --- Handlers ---
-  const handleExport = () => {
-    // Add notes to export
-    const headers = ["分類", "Name", "Company", "Title", "Email", "Phone", "LinkedIn", "Status", "Priority", "Approval", "Notes"].join(",");
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      headers + "\n" +
-      filteredData.map(e => {
-        const row = [
-          e["分類"],
-          e.name,
-          e["What company do you work for?"],
-          e["What is your job title?"],
-          e.email,
-          e.phone_number,
-          e["What is your LinkedIn profile?"],
-          e["洽談情況"],
-          e["目標優先級"],
-          e.approval_status,
-          e.notes || ""
-        ].map(v => `"${String(v).replace(/"/g, '""')}"`); // Escape quotes
-        return row.join(",");
-      }).join("\n");
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const date = new Date().toISOString().split('T')[0];
-    link.setAttribute("download", `attendees_export_${date}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    toast.success(t("msg.export_success"));
-  };
+  // Pagination Logic
+  const totalPages = Math.ceil(filteredExhibitors.length / itemsPerPage);
+  const currentExhibitors = filteredExhibitors.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const handleUpdateAttendee = (index: number, field: keyof Attendee, value: string) => {
-    // Find absolute index in main array
-    const target = filteredData[index];
-    const newAttendees = attendees.map(a => 
-      (a.name === target.name && a.email === target.email) ? { ...a, [field]: value } : a
-    );
-    setAttendees(newAttendees);
-  };
+  // Reset page when filters change
+  useMemo(() => setCurrentPage(1), [filters]);
 
-  const handleResetData = () => {
-    if (confirm(t("msg.confirm_reset"))) {
-      localStorage.removeItem(STORAGE_KEY);
-      setAttendees((rawData as unknown as Attendee[]).map(a => ({ ...a, notes: "" })));
-      toast.success(t("msg.reset_success"));
-    }
-  };
+  if (loading) {
+    return <div className="h-screen w-full flex items-center justify-center"><Loader2 className="h-10 w-10 animate-spin text-primary" /></div>;
+  }
 
-  const toggleLang = () => {
-    setLang(l => l === 'en' ? 'zh' : 'en');
-  };
-
-  // --- Components ---
-  const ApprovalBadge = ({ status }: { status: string }) => {
-    const isApproved = status === 'approved';
-    return (
-      <div className={cn(
-        "flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full w-fit",
-        isApproved 
-          ? "bg-green-500/10 text-green-400 border border-green-500/20" 
-          : "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
-      )}>
-        {isApproved ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-        {t(`approval.${status}` as any)}
-      </div>
-    );
-  };
-
-  const FilterSection = () => (
-    <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input 
-          placeholder={t("search.placeholder")} 
-          className="pl-8 bg-background/50 border-white/10"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-      
-      <div className="space-y-2">
-        <label className="text-xs text-muted-foreground font-semibold uppercase">{t("category.label")}</label>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">{t("option.all_categories")}</SelectItem>
-            <SelectItem value="AI品牌">{t("stats.ai_brands")}</SelectItem>
-            <SelectItem value="VC/投資人">{t("stats.investors")}</SelectItem>
-            <SelectItem value="其他">{t("stats.others")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <label className="text-xs text-muted-foreground font-semibold uppercase">{t("approval.label")}</label>
-        <Select value={approvalFilter} onValueChange={setApprovalFilter}>
-          <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">{t("option.all")}</SelectItem>
-            {APPROVAL_OPTIONS.map(o => (
-              <SelectItem key={o} value={o}>{t(`approval.${o}` as any)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground font-semibold uppercase">{t("status.label")}</label>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">{t("option.all")}</SelectItem>
-              {STATUS_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-xs text-muted-foreground font-semibold uppercase">{t("priority.label")}</label>
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="bg-background/50 border-white/10"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">{t("option.all")}</SelectItem>
-              {PRIORITY_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="pt-2 flex flex-col gap-2">
-         <Button className="w-full gap-2" onClick={handleExport}>
-           <Download className="h-4 w-4" /> {t("action.export")}
-         </Button>
-         <Button variant="outline" className="w-full gap-2 text-muted-foreground hover:text-destructive" onClick={handleResetData}>
-           <RotateCcw className="h-4 w-4" /> {t("action.reset")}
-         </Button>
-      </div>
-    </div>
-  );
+  const selectedExhibitor = exhibitors.find(e => e.iid === selectedExhibitorId) || null;
 
   return (
-    <div className="min-h-screen pb-20 dark bg-background text-foreground">
-      {/* Mobile Header */}
-      <div className="lg:hidden sticky top-0 z-50 glass border-b border-white/10 p-4 flex items-center justify-between">
-        <div className="font-bold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
-          Pulse<span className="text-primary">.AI</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={toggleLang} className="text-muted-foreground">
-             <span className="text-xs font-bold">{lang === 'en' ? 'EN' : '中'}</span>
-          </Button>
-          <Sheet open={showMobileFilters} onOpenChange={setShowMobileFilters}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon"><Menu className="h-5 w-5" /></Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="bg-card border-l-white/10">
-              <SheetHeader>
-                <SheetTitle>{t("filters.title")}</SheetTitle>
-                <SheetDescription>{t("filters.desc")}</SheetDescription>
-              </SheetHeader>
-              <div className="mt-6">
-                <FilterSection />
-              </div>
-            </SheetContent>
-          </Sheet>
-        </div>
-      </div>
-
-      {/* Desktop Hero */}
-      <div className="hidden lg:block relative h-[250px] w-full overflow-hidden mb-8 border-b border-white/10">
-        <div className="absolute inset-0 bg-background/80 z-10" />
-        <img 
-          src={heroBg} 
-          alt="Hero" 
-          className="absolute inset-0 w-full h-full object-cover opacity-60 z-0"
-        />
-        <div className="relative z-20 container mx-auto h-full flex flex-col justify-center px-6">
-          <div className="flex justify-between items-start">
+    <div className="min-h-screen bg-background flex flex-col font-sans">
+      {/* Hero Header */}
+      <div className="relative h-48 md:h-64 w-full overflow-hidden shrink-0">
+         <img src={heroImg} className="absolute inset-0 w-full h-full object-cover opacity-60" alt="CES Hero" />
+         <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
+         <div className="absolute bottom-0 left-0 p-6 md:p-8 w-full max-w-7xl mx-auto flex justify-between items-end">
             <div>
-              <Badge className="w-fit mb-4 bg-primary/20 text-primary border-primary/50">{t("ces.tool")}</Badge>
-              <h1 className="text-4xl font-bold">{t("attendee.manager")}</h1>
-              <p className="text-muted-foreground mt-2">{t("hero.subtitle")}</p>
+                <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-white mb-2 drop-shadow-lg">{t.appTitle}</h1>
+                <p className="text-slate-200 text-sm md:text-base max-w-xl drop-shadow-md">
+                    {t.appSubtitle}
+                </p>
             </div>
-            <Button variant="outline" size="sm" onClick={toggleLang} className="gap-2 bg-black/20 border-white/10 backdrop-blur-sm">
-              <Languages className="h-4 w-4" />
-              {lang === 'en' ? 'English' : '中文'}
-            </Button>
-          </div>
-        </div>
+            <div className="hidden md:flex gap-3">
+                <Button 
+                    variant="ghost" 
+                    className="text-white hover:bg-white/10"
+                    onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+                >
+                    <Globe className="h-4 w-4 mr-2" />
+                    {language === 'en' ? '中文' : 'English'}
+                </Button>
+                <AddExhibitorDialog onAdd={actions.addXFactor} />
+                <Button variant="secondary" onClick={actions.exportData} className="gap-2 shadow-lg">
+                    <Download className="h-4 w-4" /> {t.actions.exportCSV}
+                </Button>
+            </div>
+         </div>
       </div>
 
-      <div className="container mx-auto px-4 lg:px-6 space-y-6 lg:space-y-8 pt-4 lg:pt-0">
-        
-        {/* Mobile Stats Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4">
-          <Card className="glass p-4 flex flex-col justify-center items-center">
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <div className="text-xs text-muted-foreground">{t("stats.total")}</div>
-          </Card>
-          <Card className="glass p-4 flex flex-col justify-center items-center border-l-2" style={{ borderLeftColor: CATEGORY_COLORS["AI品牌"] }}>
-            <div className="text-2xl font-bold">{stats.byCategory["AI品牌"] || 0}</div>
-            <div className="text-xs text-muted-foreground">{t("stats.ai_brands")}</div>
-          </Card>
-          <Card className="glass p-4 flex flex-col justify-center items-center border-l-2" style={{ borderLeftColor: CATEGORY_COLORS["VC/投資人"] }}>
-            <div className="text-2xl font-bold">{stats.byCategory["VC/投資人"] || 0}</div>
-            <div className="text-xs text-muted-foreground">{t("stats.investors")}</div>
-          </Card>
-           <Card className="glass p-4 hidden md:flex flex-col justify-center items-center border-l-2" style={{ borderLeftColor: CATEGORY_COLORS["其他"] }}>
-            <div className="text-2xl font-bold">{stats.byCategory["其他"] || 0}</div>
-            <div className="text-xs text-muted-foreground">{t("stats.others")}</div>
-          </Card>
+      <div className="flex-1 max-w-[1920px] mx-auto w-full p-4 md:p-6 grid md:grid-cols-[280px_1fr] gap-6 relative">
+        {/* Mobile Filter Toggle */}
+        <div className="md:hidden flex justify-between items-center mb-4">
+            <Sheet>
+                <SheetTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                        <Filter className="h-4 w-4" /> {t.filters.title}
+                    </Button>
+                </SheetTrigger>
+                <SheetContent side="left">
+                    <div className="py-4">
+                         <h3 className="font-bold mb-4 text-lg">{t.filters.title}</h3>
+                         <SidebarFilters filters={filters} setFilters={setFilters} venues={venues} countries={countries} />
+                    </div>
+                </SheetContent>
+            </Sheet>
+             <div className="flex gap-2">
+                 <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => setLanguage(language === 'en' ? 'zh' : 'en')}
+                >
+                    <Globe className="h-4 w-4" />
+                </Button>
+                <AddExhibitorDialog onAdd={actions.addXFactor} />
+                <Button variant="secondary" size="icon" onClick={actions.exportData}>
+                    <Download className="h-4 w-4" />
+                </Button>
+             </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Desktop Sidebar Filters */}
-          <div className="hidden lg:block lg:col-span-1">
-             <Card className="glass sticky top-8">
-               <CardHeader><CardTitle>{t("controls.title")}</CardTitle></CardHeader>
-               <CardContent><FilterSection /></CardContent>
-             </Card>
-             <Card className="glass mt-4">
-                <CardContent className="p-4 h-[200px]">
-                   <ResponsiveContainer width="100%" height="100%">
-                     <PieChart>
-                       <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value">
-                         {pieData.map((entry, index) => (
-                           <Cell key={`cell-${index}`} fill={CATEGORY_COLORS[entry.name] || "#8884d8"} />
-                         ))}
-                       </Pie>
-                       <RechartsTooltip contentStyle={{ backgroundColor: 'var(--popover)', borderColor: 'var(--border)', color: 'var(--foreground)' }} />
-                     </PieChart>
-                   </ResponsiveContainer>
-                </CardContent>
-             </Card>
-          </div>
+        {/* Desktop Sidebar */}
+        <div className="hidden md:block space-y-6">
+             <div className="sticky top-6 bg-card border border-border/50 rounded-xl p-4 shadow-sm">
+                <h3 className="font-bold mb-4 text-lg flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-primary" /> {t.filters.title}
+                </h3>
+                <SidebarFilters filters={filters} setFilters={setFilters} venues={venues} countries={countries} />
+             </div>
 
-          {/* Main Content Area */}
-          <div className="lg:col-span-3 space-y-4">
-            {/* Mobile Search Bar (Visible only on mobile) */}
-            <div className="lg:hidden relative">
-               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-               <Input 
-                  placeholder={t("search.placeholder")}
-                  className="pl-9 bg-card border-white/10 h-10"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
+             {/* Mini Stats */}
+             <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-2">
+                <h4 className="font-bold text-sm text-primary">{t.stats.progress}</h4>
+                <div className="flex justify-between text-sm">
+                    <span>{t.stats.visited}</span>
+                    <span className="font-bold">{exhibitors.filter(e => e.userState.status === 'Visited').length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                     <span>{t.stats.toVisit}</span>
+                    <span className="font-bold">{exhibitors.filter(e => e.userState.status === 'To Visit').length}</span>
+                </div>
+                 <div className="flex justify-between text-sm">
+                     <span>{t.stats.starred}</span>
+                    <span className="font-bold">{exhibitors.filter(e => e.userState.isStarred).length}</span>
+                </div>
+             </div>
+        </div>
+
+        {/* Main Grid */}
+        <div className="flex flex-col h-full min-h-[500px]">
+            <div className="flex justify-between items-center mb-4">
+                 <p className="text-muted-foreground text-sm">
+                    {t.common.showing} <span className="font-bold text-foreground">{filteredExhibitors.length}</span> {t.common.results}
+                 </p>
+                 <div className="text-xs text-muted-foreground hidden sm:block">
+                    {t.common.page} {currentPage} {t.common.of} {totalPages || 1}
+                 </div>
             </div>
 
-            <Card className="glass overflow-hidden min-h-[500px]">
-              <CardHeader className="pb-3 border-b border-white/5 flex flex-row justify-between items-center">
-                <CardTitle>{t("list.title")}</CardTitle>
-                <Badge variant="outline">{filteredData.length}</Badge>
-              </CardHeader>
-              <CardContent className="p-0">
-                 {/* Mobile Card View */}
-                 <div className="lg:hidden">
-                    {filteredData.map((attendee, i) => (
-                      <div key={i} className="p-4 border-b border-white/10 space-y-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-bold text-lg">{attendee.name}</div>
-                            <div className="text-sm text-primary font-medium">{attendee["What company do you work for?"]}</div>
-                            <div className="text-xs text-muted-foreground">{attendee["What is your job title?"]}</div>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                <ApprovalBadge status={attendee.approval_status} />
-                                {attendee["What is your LinkedIn profile?"] && (
-                                   <a 
-                                     href={attendee["What is your LinkedIn profile?"]} 
-                                     target="_blank" 
-                                     rel="noopener noreferrer"
-                                     className="text-xs text-primary flex items-center gap-1 hover:underline w-fit"
-                                   >
-                                     LinkedIn <ExternalLink className="h-3 w-3" />
-                                   </a>
-                                 )}
-                            </div>
-                          </div>
-                          <Badge 
-                             variant="outline" 
-                             className="shrink-0"
-                             style={{ color: CATEGORY_COLORS[attendee["分類"]] }}
-                           >
-                             {attendee["分類"]}
-                           </Badge>
-                        </div>
-                        
-                        {/* Quick Actions / Status */}
-                        <div className="grid grid-cols-2 gap-2">
-                           <Select 
-                              value={attendee["洽談情況"]} 
-                              onValueChange={(val) => handleUpdateAttendee(i, "洽談情況", val)}
-                            >
-                             <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10">
-                               <SelectValue />
-                             </SelectTrigger>
-                             <SelectContent>
-                               {STATUS_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                             </SelectContent>
-                           </Select>
-                           <Select 
-                              value={attendee["目標優先級"]} 
-                              onValueChange={(val) => handleUpdateAttendee(i, "目標優先級", val)}
-                            >
-                             <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10">
-                               <SelectValue placeholder="Priority" />
-                             </SelectTrigger>
-                             <SelectContent>
-                               {PRIORITY_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                             </SelectContent>
-                           </Select>
-                        </div>
-
-                        {/* Expandable Notes Section */}
-                        <div className="bg-black/20 rounded-lg p-3 space-y-2">
-                           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                             <Phone className="h-3 w-3" /> {attendee.phone_number}
-                             <span className="text-white/20">|</span>
-                             <Mail className="h-3 w-3" /> {attendee.email && attendee.email.substring(0, 15)}...
-                           </div>
-                           <Textarea 
-                             placeholder={t("notes.placeholder")}
-                             className="min-h-[60px] text-sm bg-transparent border-white/10 resize-none focus-visible:ring-1"
-                             value={attendee.notes || ""}
-                             onChange={(e) => handleUpdateAttendee(i, "notes", e.target.value)}
-                           />
-                        </div>
-                      </div>
+            {filteredExhibitors.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center border-2 border-dashed border-border rounded-xl bg-card/50">
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mb-4">
+                        <Search className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-lg font-bold mb-1">{t.common.noResults}</h3>
+                    <p className="text-muted-foreground max-w-sm mx-auto">
+                        {t.common.tryAdjusting}
+                    </p>
+                    <Button 
+                        variant="link" 
+                        onClick={() => setFilters({ search: '', venue: 'All', country: 'All', status: 'All', onlyStarred: false })}
+                    >
+                        {t.common.clearAll}
+                    </Button>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+                    {currentExhibitors.map(exhibitor => (
+                        <ExhibitorCard 
+                            key={exhibitor.iid} 
+                            exhibitor={exhibitor} 
+                            onToggleStar={actions.toggleStar}
+                            onClick={() => setSelectedExhibitorId(exhibitor.iid)}
+                        />
                     ))}
-                 </div>
+                </div>
+            )}
 
-                 {/* Desktop Table View */}
-                 <div className="hidden lg:block overflow-x-auto">
-                   <Table>
-                     <TableHeader className="bg-white/5">
-                       <TableRow className="border-white/10">
-                         <TableHead className="w-[180px]">{t("col.name_contact")}</TableHead>
-                         <TableHead className="w-[200px]">{t("col.company")}</TableHead>
-                         <TableHead className="w-[120px]">{t("col.approval")}</TableHead>
-                         <TableHead className="w-[120px]">{t("col.status")}</TableHead>
-                         <TableHead className="w-[100px]">{t("col.priority")}</TableHead>
-                         <TableHead>{t("col.notes")}</TableHead>
-                       </TableRow>
-                     </TableHeader>
-                     <TableBody>
-                       {filteredData.map((attendee, i) => (
-                         <TableRow key={i} className="hover:bg-white/5 border-white/10 group align-top">
-                           <TableCell>
-                             <div className="font-bold">{attendee.name}</div>
-                             <div className="text-xs text-muted-foreground mt-1 flex flex-col gap-0.5">
-                               <span className="flex items-center gap-1"><Phone className="h-3 w-3" /> {attendee.phone_number}</span>
-                               <span className="flex items-center gap-1"><Mail className="h-3 w-3" /> {attendee.email && attendee.email.substring(0, 15)}...</span>
-                             </div>
-                             <Badge variant="outline" className="mt-2 text-[10px]" style={{ color: CATEGORY_COLORS[attendee["分類"]] }}>
-                               {attendee["分類"]}
-                             </Badge>
-                           </TableCell>
-                           <TableCell>
-                             <div className="font-medium text-sm">{attendee["What company do you work for?"]}</div>
-                             <div className="text-xs text-muted-foreground">{attendee["What is your job title?"]}</div>
-                             {attendee["What is your LinkedIn profile?"] && (
-                               <a href={attendee["What is your LinkedIn profile?"]} target="_blank" className="text-xs text-primary flex items-center gap-1 mt-1 hover:underline">
-                                 LinkedIn <ExternalLink className="h-3 w-3" />
-                               </a>
-                             )}
-                           </TableCell>
-                           <TableCell>
-                             <ApprovalBadge status={attendee.approval_status} />
-                           </TableCell>
-                           <TableCell>
-                             <Select value={attendee["洽談情況"]} onValueChange={(val) => handleUpdateAttendee(i, "洽談情況", val)}>
-                               <SelectTrigger className="h-8 text-xs bg-white/5"><SelectValue /></SelectTrigger>
-                               <SelectContent>{STATUS_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                             </Select>
-                           </TableCell>
-                           <TableCell>
-                             <Select value={attendee["目標優先級"]} onValueChange={(val) => handleUpdateAttendee(i, "目標優先級", val)}>
-                               <SelectTrigger className="h-8 text-xs bg-white/5"><SelectValue /></SelectTrigger>
-                               <SelectContent>{PRIORITY_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}</SelectContent>
-                             </Select>
-                           </TableCell>
-                           <TableCell>
-                             <Textarea 
-                               placeholder={t("notes.placeholder")}
-                               className="min-h-[80px] text-sm bg-transparent border-white/10 resize-none"
-                               value={attendee.notes || ""}
-                               onChange={(e) => handleUpdateAttendee(i, "notes", e.target.value)}
-                             />
-                           </TableCell>
-                         </TableRow>
-                       ))}
-                     </TableBody>
-                   </Table>
-                 </div>
-              </CardContent>
-            </Card>
-          </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="mt-auto py-4 flex justify-center">
+                    <Pagination>
+                        <PaginationContent>
+                            <PaginationItem>
+                                <PaginationPrevious 
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                            </PaginationItem>
+                            
+                            {/* Simple Pagination Logic: Show current, prev, next */}
+                            {currentPage > 2 && (
+                                <PaginationItem>
+                                     <PaginationLink onClick={() => setCurrentPage(1)}>1</PaginationLink>
+                                </PaginationItem>
+                            )}
+                            {currentPage > 3 && <PaginationItem>...</PaginationItem>}
+
+                            {currentPage > 1 && (
+                                 <PaginationItem>
+                                     <PaginationLink onClick={() => setCurrentPage(currentPage - 1)}>{currentPage - 1}</PaginationLink>
+                                </PaginationItem>
+                            )}
+
+                             <PaginationItem>
+                                 <PaginationLink isActive>{currentPage}</PaginationLink>
+                            </PaginationItem>
+
+                            {currentPage < totalPages && (
+                                 <PaginationItem>
+                                     <PaginationLink onClick={() => setCurrentPage(currentPage + 1)}>{currentPage + 1}</PaginationLink>
+                                </PaginationItem>
+                            )}
+
+                             {currentPage < totalPages - 2 && <PaginationItem>...</PaginationItem>}
+                             
+                             {currentPage < totalPages - 1 && (
+                                <PaginationItem>
+                                     <PaginationLink onClick={() => setCurrentPage(totalPages)}>{totalPages}</PaginationLink>
+                                </PaginationItem>
+                            )}
+
+                            <PaginationItem>
+                                <PaginationNext 
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                    className={currentPage === totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                                />
+                            </PaginationItem>
+                        </PaginationContent>
+                    </Pagination>
+                </div>
+            )}
         </div>
       </div>
+
+      <ExhibitorDetail 
+        exhibitor={selectedExhibitor}
+        open={!!selectedExhibitorId}
+        onOpenChange={(open) => !open && setSelectedExhibitorId(null)}
+        onUpdateStatus={actions.updateStatus}
+        onUpdateNotes={actions.updateNotes}
+        onToggleStar={actions.toggleStar}
+        onDelete={actions.removeExhibitor}
+      />
     </div>
   );
 }
